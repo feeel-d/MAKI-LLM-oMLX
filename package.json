@@ -1,0 +1,19 @@
+{
+  "name": "maki-llm-omlx",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "dev": "concurrently -k -n gateway,web -c cyan,magenta \"pnpm --filter @maki-llm/gateway dev\" \"pnpm --filter @maki-llm/web dev\"",
+    "build": "pnpm --filter @maki-llm/gateway build && pnpm --filter @maki-llm/web build",
+    "check": "pnpm --filter @maki-llm/gateway check && pnpm --filter @maki-llm/web check",
+    "verify": "pnpm check && pnpm build",
+    "start:gateway": "pnpm --filter @maki-llm/gateway start"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "playwright": "^1.59.1",
+    "typescript": "^5.9.3"
+  }
+}
