@@ -21,6 +21,7 @@ The web app can also run from GitHub Pages. Because Pages is static, set the gat
 OMLX_BASE_URL=https://feeeld-inc-macbookpro.tail15c8bb.ts.net/v1
 OMLX_API_KEY=
 OMLX_DEFAULT_MODEL=gemma-e4b
+OMLX_CHAT_STREAM_PATH=/api/chat/stream
 GATEWAY_PORT=8787
 WEB_ORIGIN=http://localhost:5173
 ```
@@ -45,3 +46,11 @@ gh run watch
 ```
 
 The deployed page is static. Start `apps/gateway` somewhere reachable from the browser, then set that gateway URL in the status panel.
+
+Current tested gateway URL:
+
+```text
+https://feeeld-inc-macbookpro.tail15c8bb.ts.net:8443
+```
+
+It is exposed through Tailscale Funnel on port `8443`, forwarding to the local gateway on `127.0.0.1:8787`.

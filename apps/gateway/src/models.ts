@@ -12,13 +12,13 @@ export const models: GatewayModel[] = [
   {
     id: "gemma-e4b",
     label: "Gemma E4B",
-    upstreamModel: defaultModel,
+    upstreamModel: defaultModel === "gemma-e4b" ? "gemmae4" : defaultModel,
     enabled: true,
   },
   {
     id: "gemma-26b-a4b",
     label: "Gemma 26B-A4B",
-    upstreamModel: "gemma-26b-a4b",
+    upstreamModel: "gemma26",
     enabled: false,
     reason: "26B-A4B routing is prepared but not enabled on the oMLX runtime yet.",
   },

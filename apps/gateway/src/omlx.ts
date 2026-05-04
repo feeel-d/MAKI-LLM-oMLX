@@ -33,6 +33,24 @@ function getBaseUrl(): string {
   return (process.env.OMLX_BASE_URL?.trim() || "https://feeeld-inc-macbookpro.tail15c8bb.ts.net/v1").replace(/\/+$/, "");
 }
 
+function getRootUrl(): string {
+  const baseUrl = getBaseUrl();
+  return baseUrl.endsWith("/v1") ? baseUrl.slice(0, -3) : baseUrl;
+}
+
+function resolveUpstreamUrl(pathEnv: string | undefined, fallbackPath: string): string {
+  const path = (pathEnv?.trim() || fallbackPath).startsWith("/")
+    ? pathEnv?.trim() || fallbackPath
+    : `/${pathEnv?.trim() || fallbackPath}`;
+  if (path.startsWith("/v1/")) {
+    return `${getRootUrl()}${path}`;
+  }
+  if (path.startsWith("/api/")) {
+    return `${getRootUrl()}${path}`;
+  }
+  return `${getBaseUrl()}${path}`;
+}
+
 function getHeaders(): Record<string, string> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   const apiKey = process.env.OMLX_API_KEY?.trim();
@@ -78,8 +96,8 @@ export function normalizeChatBody(input: ChatRequestBody, stream: boolean) {
 export async function checkOmlxHealth() {
   const started = Date.now();
   const baseUrl = getBaseUrl();
-  const rootUrl = baseUrl.endsWith("/v1") ? baseUrl.slice(0, -3) : baseUrl;
-  const targets = [`${baseUrl}/models`, `${rootUrl}/health`, `${rootUrl}/api/health`];
+  const rootUrl = getRootUrl();
+  const targets = [`${baseUrl}/models`, `${rootUrl}/api/models`, `${rootUrl}/health`, `${rootUrl}/api/health`];
   const attempts: Array<{ url: string; status: number; ok: boolean; error?: string }> = [];
 
   for (const url of targets) {
@@ -119,36 +137,41 @@ export async function checkOmlxHealth() {
 }
 
 export async function requestChat(input: ChatRequestBody) {
-  const { model, upstreamBody } = normalizeChatBody(input, false);
+  const { model } = normalizeChatBody(input, false);
   const started = Date.now();
-  const response = await fetch(`${getBaseUrl()}/chat/completions`, {
-    method: "POST",
-    headers: getHeaders(),
-    body: JSON.stringify(upstreamBody),
-    signal: AbortSignal.timeout(120000),
-  });
-  const payload = await response.json().catch(() => null);
-  if (!response.ok) {
-    const message = payload?.error?.message || payload?.message || `oMLX returned HTTP ${response.status}`;
-    throw Object.assign(new Error(message), { status: response.status });
+  const { response } = await requestChatStream(input, AbortSignal.timeout(120000));
+  const reader = response.body?.getReader();
+  if (!reader) {
+    throw Object.assign(new Error("oMLX stream had no response body"), { status: 502 });
   }
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let content = "";
+  await consumeSseReader(reader, decoder, {
+    onText: (text) => {
+      content += text;
+    },
+  });
   return {
-    id: payload?.id || randomUUID(),
+    id: randomUUID(),
     model: model.id,
     upstreamModel: model.upstreamModel,
     latencyMs: Date.now() - started,
-    content: payload?.choices?.[0]?.message?.content || "",
-    usage: payload?.usage || null,
+    content,
+    usage: null,
   };
 }
 
 export async function requestChatStream(input: ChatRequestBody, signal?: AbortSignal) {
   const { model, upstreamBody } = normalizeChatBody(input, true);
   const started = Date.now();
-  const response = await fetch(`${getBaseUrl()}/chat/completions`, {
+  const response = await fetch(resolveUpstreamUrl(process.env.OMLX_CHAT_STREAM_PATH, "/api/chat/stream"), {
     method: "POST",
     headers: getHeaders(),
-    body: JSON.stringify(upstreamBody),
+    body: JSON.stringify({
+      ...upstreamBody,
+      model: model.upstreamModel,
+    }),
     signal,
   });
   if (!response.ok || !response.body) {
@@ -156,4 +179,68 @@ export async function requestChatStream(input: ChatRequestBody, signal?: AbortSi
     throw Object.assign(new Error(text || `oMLX returned HTTP ${response.status}`), { status: response.status });
   }
   return { response, model, started };
+}
+
+export async function consumeSseReader(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  decoder: TextDecoder,
+  handlers: {
+    onText: (text: string) => void;
+    onFinish?: (reason: string) => void;
+    onMeta?: (data: unknown) => void;
+    onUsage?: (data: unknown) => void;
+    onWarning?: (data: unknown) => void;
+  },
+) {
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const blocks = buffer.split("\n\n");
+    buffer = blocks.pop() || "";
+    for (const block of blocks) {
+      let eventName = "";
+      const dataLines: string[] = [];
+      for (const line of block.split("\n")) {
+        if (line.startsWith("event:")) eventName = line.slice(6).trim();
+        if (line.startsWith("data:")) dataLines.push(line.slice(5).trimStart());
+      }
+      for (const raw of dataLines) {
+        if (!raw) continue;
+        if (raw === "[DONE]") {
+          handlers.onFinish?.("stop");
+          continue;
+        }
+        try {
+          const chunk = JSON.parse(raw);
+          if (eventName === "token" && typeof chunk?.text === "string") {
+            handlers.onText(chunk.text);
+            continue;
+          }
+          if (eventName === "meta") {
+            handlers.onMeta?.(chunk);
+            continue;
+          }
+          if (eventName === "done") {
+            handlers.onFinish?.(chunk?.reason || "stop");
+            continue;
+          }
+          const delta = chunk?.choices?.[0]?.delta?.content;
+          if (typeof delta === "string" && delta.length > 0) {
+            handlers.onText(delta);
+          }
+          const finishReason = chunk?.choices?.[0]?.finish_reason;
+          if (finishReason) {
+            handlers.onFinish?.(finishReason);
+          }
+          if (chunk?.usage) {
+            handlers.onUsage?.(chunk.usage);
+          }
+        } catch {
+          handlers.onWarning?.({ message: "Skipped malformed upstream SSE chunk." });
+        }
+      }
+    }
+  }
 }

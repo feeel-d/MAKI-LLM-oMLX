@@ -2,13 +2,17 @@ import "dotenv/config";
 import cors from "cors";
 import { randomUUID } from "node:crypto";
 import express, { type Request, type Response } from "express";
-import { checkOmlxHealth, requestChat, requestChatStream, type ChatRequestBody } from "./omlx.js";
+import { checkOmlxHealth, consumeSseReader, requestChat, requestChatStream, type ChatRequestBody } from "./omlx.js";
 import { models } from "./models.js";
 
 const app = express();
 const port = Number(process.env.GATEWAY_PORT || 8787);
 const webOrigin = process.env.WEB_ORIGIN || "http://localhost:5173";
 
+app.use((_req, res, next) => {
+  res.setHeader("Access-Control-Allow-Private-Network", "true");
+  next();
+});
 app.use(cors({ origin: true, credentials: false }));
 app.use(express.json({ limit: "25mb" }));
 
@@ -73,46 +77,19 @@ app.post("/api/chat/stream", async (req: Request<unknown, unknown, ChatRequestBo
     }
     const reader = body.getReader();
     const decoder = new TextDecoder();
-    let buffer = "";
+    let didFinish = false;
+    await consumeSseReader(reader, decoder, {
+      onText: (text) => writeSse(res, "delta", { text }),
+      onMeta: (data) => writeSse(res, "upstream_meta", data),
+      onUsage: (data) => writeSse(res, "usage", data),
+      onWarning: (data) => writeSse(res, "warning", data),
+      onFinish: (reason) => {
+        didFinish = true;
+        writeSse(res, "finish", { reason });
+      },
+    });
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-
-      const blocks = buffer.split("\n\n");
-      buffer = blocks.pop() || "";
-      for (const block of blocks) {
-        for (const line of block.split("\n")) {
-          if (!line.startsWith("data:")) continue;
-          const raw = line.slice(5).trim();
-          if (!raw) continue;
-          if (raw === "[DONE]") {
-            writeSse(res, "done", { latencyMs: Date.now() - started });
-            res.end();
-            return;
-          }
-          try {
-            const chunk = JSON.parse(raw);
-            const delta = chunk?.choices?.[0]?.delta?.content;
-            if (typeof delta === "string" && delta.length > 0) {
-              writeSse(res, "delta", { text: delta });
-            }
-            const finishReason = chunk?.choices?.[0]?.finish_reason;
-            if (finishReason) {
-              writeSse(res, "finish", { reason: finishReason });
-            }
-            if (chunk?.usage) {
-              writeSse(res, "usage", chunk.usage);
-            }
-          } catch {
-            writeSse(res, "warning", { message: "Skipped malformed upstream SSE chunk." });
-          }
-        }
-      }
-    }
-
-    writeSse(res, "done", { latencyMs: Date.now() - started });
+    writeSse(res, "done", { latencyMs: Date.now() - started, finished: didFinish });
     res.end();
   } catch (error) {
     const err = error as Error & { status?: number };
