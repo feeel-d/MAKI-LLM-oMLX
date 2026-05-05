@@ -32,16 +32,80 @@ interface OpenAIContentPart {
 const MAX_IMAGE_DATA_URL_CHARS = 7_500_000;
 const DEFAULT_MAX_TOKENS_TEXT = 768;
 const DEFAULT_MAX_TOKENS_IMAGE = 512;
-const RESPONSE_STYLE = [
-  "You are a concise assistant.",
-  "Reply in Korean unless the user asks for another language.",
-  "Keep the answer short, complete, and easy to scan.",
-  "Prefer 2 to 5 short sentences or up to 4 bullets.",
-  "Do not repeat the user's prompt unless it is needed for clarity.",
-  "Avoid long introductions, filler, and extra disclaimers.",
-  "If images are attached, start with a one-sentence summary and then give at most 3 short points.",
-  "End cleanly with a complete sentence.",
-].join(" ");
+type ResponseLanguage = "ko" | "en" | "ja" | "zh" | "ru" | "ar" | "other";
+
+const RESPONSE_STYLE: Record<ResponseLanguage, string> = {
+  ko: [
+    "You are a concise assistant.",
+    "Reply in Korean.",
+    "Keep the answer short, complete, and easy to scan.",
+    "Prefer 2 to 5 short sentences or up to 4 bullets.",
+    "Do not repeat the user's prompt unless it is needed for clarity.",
+    "Avoid long introductions, filler, and extra disclaimers.",
+    "If images are attached, start with a one-sentence summary and then give at most 3 short points.",
+    "End cleanly with a complete sentence.",
+  ].join(" "),
+  en: [
+    "You are a concise assistant.",
+    "Reply in English.",
+    "Keep the answer short, complete, and easy to scan.",
+    "Prefer 2 to 5 short sentences or up to 4 bullets.",
+    "Do not repeat the user's prompt unless it is needed for clarity.",
+    "Avoid long introductions, filler, and extra disclaimers.",
+    "If images are attached, start with a one-sentence summary and then give at most 3 short points.",
+    "End cleanly with a complete sentence.",
+  ].join(" "),
+  ja: [
+    "You are a concise assistant.",
+    "Reply in Japanese.",
+    "Keep the answer short, complete, and easy to scan.",
+    "Prefer 2 to 5 short sentences or up to 4 bullets.",
+    "Do not repeat the user's prompt unless it is needed for clarity.",
+    "Avoid long introductions, filler, and extra disclaimers.",
+    "If images are attached, start with a one-sentence summary and then give at most 3 short points.",
+    "End cleanly with a complete sentence.",
+  ].join(" "),
+  zh: [
+    "You are a concise assistant.",
+    "Reply in Simplified Chinese.",
+    "Keep the answer short, complete, and easy to scan.",
+    "Prefer 2 to 5 short sentences or up to 4 bullets.",
+    "Do not repeat the user's prompt unless it is needed for clarity.",
+    "Avoid long introductions, filler, and extra disclaimers.",
+    "If images are attached, start with a one-sentence summary and then give at most 3 short points.",
+    "End cleanly with a complete sentence.",
+  ].join(" "),
+  ru: [
+    "You are a concise assistant.",
+    "Reply in Russian.",
+    "Keep the answer short, complete, and easy to scan.",
+    "Prefer 2 to 5 short sentences or up to 4 bullets.",
+    "Do not repeat the user's prompt unless it is needed for clarity.",
+    "Avoid long introductions, filler, and extra disclaimers.",
+    "If images are attached, start with a one-sentence summary and then give at most 3 short points.",
+    "End cleanly with a complete sentence.",
+  ].join(" "),
+  ar: [
+    "You are a concise assistant.",
+    "Reply in Arabic.",
+    "Keep the answer short, complete, and easy to scan.",
+    "Prefer 2 to 5 short sentences or up to 4 bullets.",
+    "Do not repeat the user's prompt unless it is needed for clarity.",
+    "Avoid long introductions, filler, and extra disclaimers.",
+    "If images are attached, start with a one-sentence summary and then give at most 3 short points.",
+    "End cleanly with a complete sentence.",
+  ].join(" "),
+  other: [
+    "You are a concise assistant.",
+    "Reply in the same language as the user's most recent text message.",
+    "Keep the answer short, complete, and easy to scan.",
+    "Prefer 2 to 5 short sentences or up to 4 bullets.",
+    "Do not repeat the user's prompt unless it is needed for clarity.",
+    "Avoid long introductions, filler, and extra disclaimers.",
+    "If images are attached, start with a one-sentence summary and then give at most 3 short points.",
+    "End cleanly with a complete sentence.",
+  ].join(" "),
+};
 
 function getBaseUrl(): string {
   return (process.env.OMLX_BASE_URL?.trim() || "https://feeeld-inc-macbookpro.tail15c8bb.ts.net/v1").replace(/\/+$/, "");
@@ -70,6 +134,43 @@ function getHeaders(): Record<string, string> {
   const apiKey = process.env.OMLX_API_KEY?.trim();
   if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
   return headers;
+}
+
+function countMatches(text: string, regex: RegExp) {
+  return (text.match(regex) || []).length;
+}
+
+function detectLanguageFromText(text: string): ResponseLanguage {
+  const sample = text.trim();
+  if (!sample) return "ko";
+
+  const counts: Record<Exclude<ResponseLanguage, "other">, number> = {
+    ko: countMatches(sample, /[\uac00-\ud7a3]/g),
+    ja: countMatches(sample, /[\u3040-\u30ff]/g),
+    zh: countMatches(sample, /[\u4e00-\u9fff]/g),
+    ru: countMatches(sample, /[\u0400-\u04ff]/g),
+    ar: countMatches(sample, /[\u0600-\u06ff]/g),
+    en: countMatches(sample, /[A-Za-z]/g),
+  };
+
+  const ranked = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  const [bestLanguage, bestCount] = ranked[0] || ["ko", 0];
+  if (bestCount === 0) return "ko";
+  if (bestLanguage === "en") {
+    const hasOtherScripts = ranked.some(([language, count]) => language !== "en" && count > 0);
+    if (hasOtherScripts && bestCount < 4) return "other";
+  }
+  return bestLanguage as ResponseLanguage;
+}
+
+function getLastUserText(messages: ChatMessage[]) {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.role === "user" && message.content.trim()) {
+      return message.content;
+    }
+  }
+  return "";
 }
 
 function normalizeMessages(messages: ChatMessage[]) {
@@ -108,6 +209,8 @@ function hasImageAttachments(messages: ChatMessage[]) {
 
 export function normalizeChatBody(input: ChatRequestBody, stream: boolean) {
   const model = resolveModel(input.model);
+  const lastUserText = getLastUserText(input.messages || []);
+  const responseLanguage = detectLanguageFromText(lastUserText);
   const imageRequest = hasImageAttachments(input.messages || []);
   const defaultMaxTokens = imageRequest ? DEFAULT_MAX_TOKENS_IMAGE : DEFAULT_MAX_TOKENS_TEXT;
   const maxTokens = Number.isFinite(input.maxTokens)
@@ -119,7 +222,7 @@ export function normalizeChatBody(input: ChatRequestBody, stream: boolean) {
     upstreamBody: {
       model: model.upstreamModel,
       messages: [
-        { role: "system", content: RESPONSE_STYLE },
+        { role: "system", content: RESPONSE_STYLE[responseLanguage] },
         ...normalizeMessages(input.messages || []),
       ],
       temperature,
