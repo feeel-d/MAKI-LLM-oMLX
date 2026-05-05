@@ -30,6 +30,18 @@ interface OpenAIContentPart {
 }
 
 const MAX_IMAGE_DATA_URL_CHARS = 7_500_000;
+const DEFAULT_MAX_TOKENS_TEXT = 768;
+const DEFAULT_MAX_TOKENS_IMAGE = 512;
+const RESPONSE_STYLE = [
+  "You are a concise assistant.",
+  "Reply in Korean unless the user asks for another language.",
+  "Keep the answer short, complete, and easy to scan.",
+  "Prefer 2 to 5 short sentences or up to 4 bullets.",
+  "Do not repeat the user's prompt unless it is needed for clarity.",
+  "Avoid long introductions, filler, and extra disclaimers.",
+  "If images are attached, start with a one-sentence summary and then give at most 3 short points.",
+  "End cleanly with a complete sentence.",
+].join(" ");
 
 function getBaseUrl(): string {
   return (process.env.OMLX_BASE_URL?.trim() || "https://feeeld-inc-macbookpro.tail15c8bb.ts.net/v1").replace(/\/+$/, "");
@@ -85,15 +97,31 @@ function normalizeMessages(messages: ChatMessage[]) {
   });
 }
 
+function hasImageAttachments(messages: ChatMessage[]) {
+  return messages.some((message) =>
+    (message.attachments || []).some((attachment) => {
+      const url = attachment.url || attachment.dataUrl || "";
+      return Boolean(attachment.mimeType?.startsWith("image/") || url.startsWith("data:image/"));
+    }),
+  );
+}
+
 export function normalizeChatBody(input: ChatRequestBody, stream: boolean) {
   const model = resolveModel(input.model);
-  const maxTokens = Number.isFinite(input.maxTokens) ? Math.max(1, Math.min(8192, Math.trunc(input.maxTokens || 2048))) : 2048;
+  const imageRequest = hasImageAttachments(input.messages || []);
+  const defaultMaxTokens = imageRequest ? DEFAULT_MAX_TOKENS_IMAGE : DEFAULT_MAX_TOKENS_TEXT;
+  const maxTokens = Number.isFinite(input.maxTokens)
+    ? Math.max(1, Math.min(8192, Math.trunc(input.maxTokens || defaultMaxTokens)))
+    : defaultMaxTokens;
   const temperature = Number.isFinite(input.temperature) ? Math.max(0, Math.min(2, Number(input.temperature))) : 0.7;
   return {
     model,
     upstreamBody: {
       model: model.upstreamModel,
-      messages: normalizeMessages(input.messages || []),
+      messages: [
+        { role: "system", content: RESPONSE_STYLE },
+        ...normalizeMessages(input.messages || []),
+      ],
       temperature,
       max_tokens: maxTokens,
       stream,
