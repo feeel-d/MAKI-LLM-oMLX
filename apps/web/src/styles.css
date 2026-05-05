@@ -267,6 +267,24 @@ select:focus {
   gap: 12px;
 }
 
+.mobile-status-panel {
+  display: none;
+}
+
+.gateway-panel.compact {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.gateway-panel.compact label {
+  margin-bottom: 0;
+}
+
+.gateway-panel.compact p {
+  margin-top: 0;
+}
+
 .panel-card {
   border: 1px solid var(--border);
   border-radius: 20px;
@@ -386,6 +404,27 @@ select:focus {
 
   .composer {
     padding: 8px 8px max(8px, env(safe-area-inset-bottom));
+  }
+
+  .mobile-status-panel {
+    display: block;
+    padding: 0 8px 8px;
+  }
+
+  .mobile-status-panel .panel-card {
+    border-radius: 16px;
+    padding: 12px;
+    box-shadow: none;
+  }
+
+  .mobile-status-panel .panel-card p {
+    margin-top: 8px;
+    font-size: 13px;
+    line-height: 1.38;
+  }
+
+  .mobile-status-panel .panel-card input {
+    min-height: 38px;
   }
 
   .composer-row {

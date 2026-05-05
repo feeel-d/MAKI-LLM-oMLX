@@ -63,6 +63,38 @@ function uniqueImageFiles(files: File[]) {
   });
 }
 
+function GatewayPanel({
+  apiBase,
+  onApiBaseChange,
+  health,
+  healthDetail,
+  onCheck,
+  compact = false,
+}: {
+  apiBase: string;
+  onApiBaseChange: (value: string) => void;
+  health: string;
+  healthDetail: string;
+  onCheck: () => void;
+  compact?: boolean;
+}) {
+  return (
+    <div className={`panel-card gateway-panel ${compact ? "compact" : ""}`}>
+      <div className="status-line">
+        <span className={`dot ${health}`} />
+        <strong>{health}</strong>
+        <button type="button" onClick={onCheck}>
+          Check
+        </button>
+      </div>
+      <label>Gateway URL</label>
+      <input value={apiBase} onChange={(event) => onApiBaseChange(event.target.value)} placeholder="http://localhost:8787" />
+      <p>{healthDetail || "Gateway status is not checked yet."}</p>
+      {compact ? null : <p>GitHub Pages is static. Use a reachable gateway URL here.</p>}
+    </div>
+  );
+}
+
 export function App() {
   const [apiBase, setApiBase] = useState(() => localStorage.getItem("maki-omlx-api-base") || getDefaultApiBase());
   const [theme, setTheme] = useState<"light" | "dark">(() => (localStorage.getItem("maki-omlx-theme") as "light" | "dark") || "dark");
@@ -261,6 +293,17 @@ export function App() {
           <div ref={bottomRef} />
         </div>
 
+        <div className="mobile-status-panel">
+          <GatewayPanel
+            compact
+            apiBase={apiBase}
+            onApiBaseChange={setApiBase}
+            health={health}
+            healthDetail={healthDetail}
+            onCheck={refreshGateway}
+          />
+        </div>
+
         <form className="composer" onSubmit={handleSubmit}>
           {attachments.length > 0 ? (
             <div className="preview-strip">
@@ -311,19 +354,7 @@ export function App() {
       </section>
 
       <aside className="status-panel">
-        <div className="panel-card">
-          <div className="status-line">
-            <span className={`dot ${health}`} />
-            <strong>{health}</strong>
-            <button type="button" onClick={refreshGateway}>Check</button>
-          </div>
-          <p>{healthDetail || "Gateway status is not checked yet."}</p>
-        </div>
-        <div className="panel-card">
-          <label>Gateway URL</label>
-          <input value={apiBase} onChange={(event) => setApiBase(event.target.value)} placeholder="http://localhost:8787" />
-          <p>GitHub Pages is static. Use a reachable gateway URL here.</p>
-        </div>
+        <GatewayPanel apiBase={apiBase} onApiBaseChange={setApiBase} health={health} healthDetail={healthDetail} onCheck={refreshGateway} />
         <div className="panel-card">
           <strong>{selectedModel?.label || "Gemma E4B"}</strong>
           <p>{selectedModel?.reason || "Enabled model routed to the oMLX OpenAI-compatible API."}</p>
