@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ClipboardEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Attachment, ChatMessage, fetchHealth, fetchModels, GatewayModel, getDefaultApiBase, streamChat } from "./api";
 
 const welcome: ChatMessage = {
@@ -110,6 +110,19 @@ export function App() {
     if (images.length === 0) return;
     const converted = await Promise.all(images.slice(0, 4).map(fileToDataUrl));
     setAttachments((prev) => [...prev, ...converted].slice(0, 4));
+  }
+
+  async function handlePaste(event: ClipboardEvent<HTMLTextAreaElement>) {
+    const files = [
+      ...Array.from(event.clipboardData.files).filter((file) => file.type.startsWith("image/")),
+      ...Array.from(event.clipboardData.items)
+        .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+        .map((item) => item.getAsFile())
+        .filter((file): file is File => Boolean(file)),
+    ];
+    if (files.length === 0) return;
+    event.preventDefault();
+    await addFiles(files);
   }
 
   async function handleSubmit(event?: FormEvent) {
@@ -264,6 +277,9 @@ export function App() {
               onChange={(event) => setInput(event.target.value)}
               placeholder="Ask Gemma E4B..."
               rows={1}
+              onPaste={(event) => {
+                void handlePaste(event);
+              }}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault();
