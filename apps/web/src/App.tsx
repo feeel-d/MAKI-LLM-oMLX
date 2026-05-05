@@ -53,6 +53,16 @@ async function fileToDataUrl(file: File): Promise<Attachment> {
   return { name: `${safeName}.jpg`, mimeType: "image/jpeg", dataUrl };
 }
 
+function uniqueImageFiles(files: File[]) {
+  const seen = new Set<string>();
+  return files.filter((file) => {
+    const key = `${file.name}:${file.size}:${file.type}:${file.lastModified}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 export function App() {
   const [apiBase, setApiBase] = useState(() => localStorage.getItem("maki-omlx-api-base") || getDefaultApiBase());
   const [theme, setTheme] = useState<"light" | "dark">(() => (localStorage.getItem("maki-omlx-theme") as "light" | "dark") || "dark");
@@ -106,20 +116,20 @@ export function App() {
   }, []);
 
   async function addFiles(files: FileList | File[]) {
-    const images = [...files].filter((file) => file.type.startsWith("image/"));
+    const images = uniqueImageFiles([...files].filter((file) => file.type.startsWith("image/")));
     if (images.length === 0) return;
     const converted = await Promise.all(images.slice(0, 4).map(fileToDataUrl));
     setAttachments((prev) => [...prev, ...converted].slice(0, 4));
   }
 
   async function handlePaste(event: ClipboardEvent<HTMLTextAreaElement>) {
-    const files = [
+    const files = uniqueImageFiles([
       ...Array.from(event.clipboardData.files).filter((file) => file.type.startsWith("image/")),
       ...Array.from(event.clipboardData.items)
         .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
         .map((item) => item.getAsFile())
         .filter((file): file is File => Boolean(file)),
-    ];
+    ]);
     if (files.length === 0) return;
     event.preventDefault();
     await addFiles(files);
