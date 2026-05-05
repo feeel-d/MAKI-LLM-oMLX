@@ -18,10 +18,13 @@ The web app can also run from GitHub Pages. Because Pages is static, set the gat
 ## Gateway env
 
 ```bash
-OMLX_BASE_URL=https://feeeld-inc-macbookpro.tail15c8bb.ts.net/v1
+OMLX_BASE_URL=http://127.0.0.1:8081/v1
 OMLX_API_KEY=
 OMLX_DEFAULT_MODEL=gemma-e4b
-OMLX_CHAT_STREAM_PATH=/api/chat/stream
+OMLX_CHAT_STREAM_PATH=/v1/chat/completions
+OMLX_KEEP_WARM_ENABLED=true
+OMLX_KEEP_WARM_INTERVAL_MS=30000
+OMLX_KEEP_WARM_PROMPT=ok
 GATEWAY_PORT=8787
 WEB_ORIGIN=http://localhost:5173
 ```
@@ -34,6 +37,8 @@ WEB_ORIGIN=http://localhost:5173
 - `POST /api/chat/stream`
 
 `gemma-e4b` is enabled first. `gemma-26b-a4b` is visible but unavailable until the Mac runtime is ready.
+
+Use `POST /api/chat/stream` for the fastest perceived responses because it returns tokens as soon as the upstream model starts generating. The gateway defaults are tuned for short summaries; pass `maxTokens` when a longer answer is needed.
 
 ## GitHub Pages
 

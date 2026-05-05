@@ -2,7 +2,7 @@ import "dotenv/config";
 import cors from "cors";
 import { randomUUID } from "node:crypto";
 import express, { type Request, type Response } from "express";
-import { checkOmlxHealth, consumeSseReader, requestChat, requestChatStream, type ChatRequestBody } from "./omlx.js";
+import { checkOmlxHealth, consumeSseReader, requestChat, requestChatStream, startKeepWarmLoop, type ChatRequestBody } from "./omlx.js";
 import { models } from "./models.js";
 
 const app = express();
@@ -101,4 +101,5 @@ app.post("/api/chat/stream", async (req: Request<unknown, unknown, ChatRequestBo
 app.listen(port, () => {
   console.log(`MAKI LLM oMLX gateway listening on http://localhost:${port}`);
   console.log(`Allowed web origin hint: ${webOrigin}`);
+  startKeepWarmLoop();
 });

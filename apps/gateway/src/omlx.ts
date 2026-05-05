@@ -30,81 +30,18 @@ interface OpenAIContentPart {
 }
 
 const MAX_IMAGE_DATA_URL_CHARS = 7_500_000;
-const DEFAULT_MAX_TOKENS_TEXT = 768;
-const DEFAULT_MAX_TOKENS_IMAGE = 512;
+const DEFAULT_MAX_TOKENS_TEXT = 96;
+const DEFAULT_MAX_TOKENS_IMAGE = 192;
 type ResponseLanguage = "ko" | "en" | "ja" | "zh" | "ru" | "ar" | "other";
 
 const RESPONSE_STYLE: Record<ResponseLanguage, string> = {
-  ko: [
-    "You are a concise assistant.",
-    "Reply in Korean.",
-    "Keep the answer short, complete, and easy to scan.",
-    "Prefer 2 to 5 short sentences or up to 4 bullets.",
-    "Do not repeat the user's prompt unless it is needed for clarity.",
-    "Avoid long introductions, filler, and extra disclaimers.",
-    "If images are attached, start with a one-sentence summary and then give at most 3 short points.",
-    "End cleanly with a complete sentence.",
-  ].join(" "),
-  en: [
-    "You are a concise assistant.",
-    "Reply in English.",
-    "Keep the answer short, complete, and easy to scan.",
-    "Prefer 2 to 5 short sentences or up to 4 bullets.",
-    "Do not repeat the user's prompt unless it is needed for clarity.",
-    "Avoid long introductions, filler, and extra disclaimers.",
-    "If images are attached, start with a one-sentence summary and then give at most 3 short points.",
-    "End cleanly with a complete sentence.",
-  ].join(" "),
-  ja: [
-    "You are a concise assistant.",
-    "Reply in Japanese.",
-    "Keep the answer short, complete, and easy to scan.",
-    "Prefer 2 to 5 short sentences or up to 4 bullets.",
-    "Do not repeat the user's prompt unless it is needed for clarity.",
-    "Avoid long introductions, filler, and extra disclaimers.",
-    "If images are attached, start with a one-sentence summary and then give at most 3 short points.",
-    "End cleanly with a complete sentence.",
-  ].join(" "),
-  zh: [
-    "You are a concise assistant.",
-    "Reply in Simplified Chinese.",
-    "Keep the answer short, complete, and easy to scan.",
-    "Prefer 2 to 5 short sentences or up to 4 bullets.",
-    "Do not repeat the user's prompt unless it is needed for clarity.",
-    "Avoid long introductions, filler, and extra disclaimers.",
-    "If images are attached, start with a one-sentence summary and then give at most 3 short points.",
-    "End cleanly with a complete sentence.",
-  ].join(" "),
-  ru: [
-    "You are a concise assistant.",
-    "Reply in Russian.",
-    "Keep the answer short, complete, and easy to scan.",
-    "Prefer 2 to 5 short sentences or up to 4 bullets.",
-    "Do not repeat the user's prompt unless it is needed for clarity.",
-    "Avoid long introductions, filler, and extra disclaimers.",
-    "If images are attached, start with a one-sentence summary and then give at most 3 short points.",
-    "End cleanly with a complete sentence.",
-  ].join(" "),
-  ar: [
-    "You are a concise assistant.",
-    "Reply in Arabic.",
-    "Keep the answer short, complete, and easy to scan.",
-    "Prefer 2 to 5 short sentences or up to 4 bullets.",
-    "Do not repeat the user's prompt unless it is needed for clarity.",
-    "Avoid long introductions, filler, and extra disclaimers.",
-    "If images are attached, start with a one-sentence summary and then give at most 3 short points.",
-    "End cleanly with a complete sentence.",
-  ].join(" "),
-  other: [
-    "You are a concise assistant.",
-    "Reply in the same language as the user's most recent text message.",
-    "Keep the answer short, complete, and easy to scan.",
-    "Prefer 2 to 5 short sentences or up to 4 bullets.",
-    "Do not repeat the user's prompt unless it is needed for clarity.",
-    "Avoid long introductions, filler, and extra disclaimers.",
-    "If images are attached, start with a one-sentence summary and then give at most 3 short points.",
-    "End cleanly with a complete sentence.",
-  ].join(" "),
+  ko: "Reply in Korean in one short sentence. No markdown. Do not explain reasoning.",
+  en: "Reply in English in one short sentence. No markdown. Do not explain reasoning.",
+  ja: "Reply in Japanese in one short sentence. No markdown. Do not explain reasoning.",
+  zh: "Reply in Simplified Chinese in one short sentence. No markdown. Do not explain reasoning.",
+  ru: "Reply in Russian in one short sentence. No markdown. Do not explain reasoning.",
+  ar: "Reply in Arabic in one short sentence. No markdown. Do not explain reasoning.",
+  other: "Reply in the same language as the user in one short sentence. No markdown. Do not explain reasoning.",
 };
 
 function getBaseUrl(): string {
@@ -216,7 +153,7 @@ export function normalizeChatBody(input: ChatRequestBody, stream: boolean) {
   const maxTokens = Number.isFinite(input.maxTokens)
     ? Math.max(1, Math.min(8192, Math.trunc(input.maxTokens || defaultMaxTokens)))
     : defaultMaxTokens;
-  const temperature = Number.isFinite(input.temperature) ? Math.max(0, Math.min(2, Number(input.temperature))) : 0.7;
+  const temperature = Number.isFinite(input.temperature) ? Math.max(0, Math.min(2, Number(input.temperature))) : 0.2;
   return {
     model,
     upstreamBody: {
@@ -318,6 +255,40 @@ export async function requestChatStream(input: ChatRequestBody, signal?: AbortSi
     throw Object.assign(new Error(text || `oMLX returned HTTP ${response.status}`), { status: response.status });
   }
   return { response, model, started };
+}
+
+export function startKeepWarmLoop() {
+  const enabled = (process.env.OMLX_KEEP_WARM_ENABLED || "true").toLowerCase() !== "false";
+  if (!enabled) return;
+
+  const intervalMs = Math.max(10_000, Number(process.env.OMLX_KEEP_WARM_INTERVAL_MS || 30_000));
+  const prompt = process.env.OMLX_KEEP_WARM_PROMPT || "ok";
+
+  async function warmOnce() {
+    const started = Date.now();
+    try {
+      const { response } = await requestChatStream(
+        {
+          model: process.env.OMLX_DEFAULT_MODEL || "gemma-e4b",
+          messages: [{ role: "user", content: prompt }],
+          maxTokens: 4,
+          temperature: 0,
+        },
+        AbortSignal.timeout(Math.min(20_000, intervalMs - 1_000)),
+      );
+      const reader = response.body?.getReader();
+      if (reader) {
+        await consumeSseReader(reader, new TextDecoder(), { onText: () => undefined });
+      }
+      console.log(`oMLX keep-warm completed in ${Date.now() - started}ms`);
+    } catch (error) {
+      console.warn(`oMLX keep-warm failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  setTimeout(() => void warmOnce(), 2_000);
+  setInterval(() => void warmOnce(), intervalMs);
+  console.log(`oMLX keep-warm enabled every ${intervalMs}ms`);
 }
 
 export async function consumeSseReader(
