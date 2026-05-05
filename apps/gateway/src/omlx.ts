@@ -29,6 +29,8 @@ interface OpenAIContentPart {
   image_url?: { url: string };
 }
 
+const MAX_IMAGE_DATA_URL_CHARS = 7_500_000;
+
 function getBaseUrl(): string {
   return (process.env.OMLX_BASE_URL?.trim() || "https://feeeld-inc-macbookpro.tail15c8bb.ts.net/v1").replace(/\/+$/, "");
 }
@@ -67,6 +69,12 @@ function normalizeMessages(messages: ChatMessage[]) {
     for (const attachment of message.attachments || []) {
       const url = attachment.url || attachment.dataUrl;
       if (url && (attachment.mimeType?.startsWith("image/") || url.startsWith("data:image/"))) {
+        if (url.startsWith("data:image/") && url.length > MAX_IMAGE_DATA_URL_CHARS) {
+          throw Object.assign(
+            new Error("Image is too large for the oMLX gateway. Please attach a smaller or compressed image."),
+            { status: 413 },
+          );
+        }
         parts.push({ type: "image_url", image_url: { url } });
       }
     }

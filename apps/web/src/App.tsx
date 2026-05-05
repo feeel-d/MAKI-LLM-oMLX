@@ -12,13 +12,45 @@ function uid() {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-function fileToDataUrl(file: File): Promise<Attachment> {
+const MAX_IMAGE_EDGE = 1280;
+const JPEG_QUALITY = 0.78;
+
+function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => resolve({ name: file.name, mimeType: file.type || "image/png", dataUrl: String(reader.result) });
+    reader.onload = () => resolve(String(reader.result));
     reader.onerror = () => reject(reader.error || new Error("Failed to read image"));
     reader.readAsDataURL(file);
   });
+}
+
+function loadImage(dataUrl: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("Failed to decode image"));
+    image.src = dataUrl;
+  });
+}
+
+async function fileToDataUrl(file: File): Promise<Attachment> {
+  const sourceUrl = await readFileAsDataUrl(file);
+  const image = await loadImage(sourceUrl);
+  const scale = Math.min(1, MAX_IMAGE_EDGE / Math.max(image.naturalWidth, image.naturalHeight));
+  const width = Math.max(1, Math.round(image.naturalWidth * scale));
+  const height = Math.max(1, Math.round(image.naturalHeight * scale));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  if (!context) {
+    return { name: file.name, mimeType: file.type || "image/png", dataUrl: sourceUrl };
+  }
+  context.drawImage(image, 0, 0, width, height);
+  const dataUrl = canvas.toDataURL("image/jpeg", JPEG_QUALITY);
+  const safeName = file.name.replace(/\.[^.]+$/, "") || "image";
+  return { name: `${safeName}.jpg`, mimeType: "image/jpeg", dataUrl };
 }
 
 export function App() {
